@@ -8,9 +8,7 @@ class RotateProxy:
     load_dotenv()
     PROXY_FILENAME = os.getenv('PROXY_FILENAME')
     BROWSER_PROFILE_PATH = os.getenv('BROWSER_PROFILE_PATH')
-    PROXY_USERNAME = os.getenv('PROXY_USERNAME')
-    PROXY_PASSWORD = os.getenv('PROXY_PASSWORD')
-
+    
     def __init__(self, used_proxy:str=None):
         self.proxy_list = []
         self.used_proxy = used_proxy
@@ -34,14 +32,19 @@ class RotateProxy:
         else:
             self.proxy = self.proxy_list[used_proxy_index + 1]
 
+        splitted_proxy = self.proxy.split(':')
+        ip_port = str(splitted_proxy[0]) + ':' + str(splitted_proxy[1])
+        username = str(splitted_proxy[3])
+        password = str(splitted_proxy[4])
+
         seleniumwire_options = {
             'proxy':{
-                'http':f'http://{self.PROXY_USERNAME}:{self.PROXY_PASSWORD}@{self.proxy}',
-                'https':f'https://{self.PROXY_USERNAME}:{self.PROXY_PASSWORD}@{self.proxy}',
+                'http':f'http://{username}:{password}@{ip_port}',
+                'https':f'https://{username}:{password}@{ip_port}',
                 'no_proxy':'localhost, 127.0.0.1'
             }
         }
-        print(f'\n---------------------------------------------------\nThe proxy is changed, new IP: {self.proxy}\n---------------------------------------------------\n')
+        print(f'\n---------------------------------------------------\nThe proxy is changed, new IP: {ip_port}\n---------------------------------------------------\n')
 
         return self.proxy, seleniumwire_options
 

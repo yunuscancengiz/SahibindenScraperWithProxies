@@ -1,34 +1,34 @@
 import pandas as pd
+import random
+import time
+import os
 from bs4 import BeautifulSoup
-#from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from seleniumwire import webdriver
 from pprint import pprint
-import time
 from rotate_proxy import RotateProxy
 
 class SahibindenScraper:
-    SCRAPE_ADS_TYPE = 'CLICK'       # CLICK or REQUEST
-    WINDOW_SIZE = 50
+    SCRAPE_ADS_TYPE = 'UNIQUE'       # CLICK or REQUEST or UNIQUE
+    WINDOW_SIZE = 20                # 50 or 20
 
-    def __init__(self, starting_page:int=1, ending_page:int=20, filename:str='test') -> None:
+    def __init__(self, starting_page:int=41, ending_page:int=50, filename:str='pages41-50') -> None:
         self.starting_page = starting_page
         self.ending_page = ending_page
         self.filename = filename
         self.page_urls = []
         self.ad_urls = []
         self.ad_xpaths = []
+        self.firm_list = []
         self.list_for_excel = []
         self.main_url = 'https://www.sahibinden.com/otomotiv-ekipmanlari-yedek-parca'
         self.used_proxy = None
 
-        #self.rotate_proxy = RotateProxy(used_proxy=None)
-        #self.used_proxy, self.seleniumwire_options = self.rotate_proxy.change_proxy()
-
-        #self.browser = webdriver.Firefox(seleniumwire_options=self.seleniumwire_options)
+        # scraped firms' names will be appended to the list to avoid recurrent firms
+        self._prepare_scraped_firm_list()
 
         # run app
         self.main()
@@ -48,7 +48,9 @@ class SahibindenScraper:
                     self.browser.get(page_url)
 
                     # by-pass cloudflare
-                    self._bypass_cloudflare()
+                    #self._bypass_cloudflare()
+
+                    input('press enter after cloudflare checkbox...')
 
                     # wait for context to load
                     WebDriverWait(self.browser, 600).until(EC.visibility_of_element_located((By.XPATH, '/html/body/div[5]/div[4]/form/div[1]/div[3]/table/tbody/tr[1]/td[2]/a[1]')))
@@ -59,14 +61,16 @@ class SahibindenScraper:
                             print(counter)
                             self.scrape_ad_info()
                             self.browser.back()
+                            time.sleep(random.uniform(3.0, 7.0))
                             WebDriverWait(self.browser, 60).until(EC.visibility_of_element_located((By.XPATH, '/html/body/div[5]/div[4]/form/div[1]/div[3]/table/tbody/tr[1]/td[2]/a[1]')))
                             counter += 1
+
+                        except KeyboardInterrupt:
+                            self.convert_to_excel()
                         except:
-                            counter += 1
+                            #counter += 1
                             continue
                     self.browser.quit()
-
-                        
 
 
             elif self.SCRAPE_ADS_TYPE == 'REQUEST':
@@ -82,7 +86,7 @@ class SahibindenScraper:
                             self.rotate_proxy = RotateProxy(used_proxy=self.used_proxy)
                             self.used_proxy, self.seleniumwire_options = self.rotate_proxy.change_proxy()
                             self.browser = webdriver.Firefox(seleniumwire_options=self.seleniumwire_options)
-                            time.sleep(3)
+                            time.sleep(random.uniform(3.0, 7.0))
 
                         print(counter)
                         self.browser.get(ad_url)
@@ -91,11 +95,28 @@ class SahibindenScraper:
 
                         counter += 1
 
+            elif self.SCRAPE_ADS_TYPE == 'UNIQUE':
+                self.create_page_urls()
+                for page_url in self.page_urls:
+                    # change ip
+                    self.rotate_proxy = RotateProxy(used_proxy=self.used_proxy)
+                    self.used_proxy, self.seleniumwire_options = self.rotate_proxy.change_proxy()
+                    self.browser = webdriver.Firefox(seleniumwire_options=self.seleniumwire_options)
+                    self.browser.get(page_url)
+                    input('press enter after cloudflare checkbox...')
+
+                    # wait for context to load
+                    WebDriverWait(self.browser, 600).until(EC.visibility_of_element_located((By.XPATH, '/html/body/div[5]/div[4]/form/div[1]/div[3]/table/tbody/tr[1]/td[2]/a[1]')))
+                    self.scrape_if_not_exists()
+                    self.browser.quit()
+
             else:
-                return f'{self.SCRAPE_ADS_TYPE} is not a valid value, choose CLICK or REQUEST'
+                return f'{self.SCRAPE_ADS_TYPE} is not a valid value, choose CLICK, REQUEST or UNIQUE'
             
         except Exception as e:
             print(e)
+        except KeyboardInterrupt:
+            self.convert_to_excel()
         finally:
             self.convert_to_excel()
 
@@ -156,7 +177,31 @@ class SahibindenScraper:
 
             pprint(info)
             print('\n-------------------------------------\n')
-        time.sleep(5)
+        time.sleep(random.uniform(3.0, 7.0))
+
+
+    def scrape_if_not_exists(self):
+        r = self.browser.page_source
+        soup = BeautifulSoup(r, 'lxml')
+
+        ads = soup.find('tbody', attrs={'class':'searchResultsRowClass'}).find_all('tr')
+        for ad in ads:
+            try:
+                firm = ad.find('td', attrs={'class':'searchResultsTitleValue'}).find('a', attrs={'class':'titleIcon store-icon'}).get('title')
+                print(firm)
+                if firm not in self.firm_list:
+                    ad_url = 'https://www.sahibinden.com' + ad.find('td', attrs={'class':'searchResultsTitleValue'}).find('a', attrs={'class':'classifiedTitle'}).get('href')
+                    self.browser.get(ad_url)
+                    self.scrape_ad_info()
+                    self.firm_list.append(firm)
+
+                    #self.broser.back()
+                    #time.sleep(random.uniform(3.0, 7.0))
+                else:
+                    print('The firm is already in the scraped firm list!\n-------------------------------------\n')
+            except:
+                #print('Not a firm!')
+                pass
         
     
     def _get_text_from_element(self, soup:BeautifulSoup, default=None, **kwargs):
@@ -213,8 +258,22 @@ class SahibindenScraper:
     def _bypass_cloudflare(self):
         WebDriverWait(self.browser, 20).until(EC.frame_to_be_available_and_switch_to_it((By.XPATH,"//iframe[@title='Widget containing a Cloudflare security challenge']")))
         cloudflare_checkbox = WebDriverWait(self.browser, 20).until(EC.element_to_be_clickable((By.XPATH, "//label[@class='cb-lb']")))
-        time.sleep(3)
+        time.sleep(random.uniform(3.0, 7.0))
         cloudflare_checkbox.click()
+
+
+    def _prepare_scraped_firm_list(self):
+        excel_files = []
+        files = os.listdir()
+        for f in files:
+            if str(f).endswith('.xlsx'):
+                excel_files.append(str(f))
+
+        for f in excel_files:
+            for firm in pd.read_excel(f)['Firma']:
+                self.firm_list.append(firm)
+
+        print(f'\n--------------------------------\nScraped firm list preapared!\nNumber of firms: {len(self.firm_list)}\n--------------------------------\n')
         
     
     def convert_to_excel(self):
@@ -226,12 +285,3 @@ class SahibindenScraper:
 
 if __name__ == '__main__':
     scraper = SahibindenScraper()
-
-# //*[@id="searchResultsTable"]/tbody/tr[1]/td[2]/a[1]
-# //*[@id="searchResultsTable"]/tbody/tr[2]/td[2]/a[1]
-
-# /html/body/div[5]/div[4]/form/div[1]/div[3]/table/tbody/tr[1]/td[2]/a[1]
-# /html/body/div[5]/div[4]/form/div[1]/div[3]/table/tbody/tr[2]/td[2]/a[1]
-# /html/body/div[5]/div[4]/form/div[1]/div[3]/table/tbody/tr[5]/td[2]/a[1]
-# /html/body/div[5]/div[4]/form/div[1]/div[3]/table/tbody/tr[53]/td[2]/a[1]
-# /html/body/div[5]/div[4]/form/div[1]/div[3]/table/tbody/tr[7]/td[2]/a[1]
